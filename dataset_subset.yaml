@@ -1,0 +1,15 @@
+# YOLOv11 dataset config for EyeWave dataset_subset
+# Labels are YOLO format: class cx cy w h (normalised 0..1)
+
+path: /home/amma/eyewave/dataset_subset  # dataset root
+train: images/train
+val: images/val
+
+# 5 eye-signal classes
+nc: 5
+names:
+  0: open
+  1: closed
+  2: blink
+  3: gaze
+  4: saccade
