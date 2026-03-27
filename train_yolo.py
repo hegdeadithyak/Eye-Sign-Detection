@@ -13,89 +13,16 @@ Usage:
 
 import argparse
 import os
-import random
-import shutil
 from pathlib import Path
 
 from ultralytics import YOLO
-
-
-# ─────────────────────────────────────────────────────────────
-# Dataset preparation
-# ─────────────────────────────────────────────────────────────
-
-def prepare_dataset(data_dir: str, val_split: float = 0.2, seed: int = 42):
-    """
-    Reorganise flat images/ + labels/ into train/val splits.
-
-    YOLO expects:
-        data_dir/
-            images/train/  images/val/
-            labels/train/  labels/val/
-
-    This function is idempotent — skips if the split already exists.
-    """
-    data_path = Path(data_dir)
-    img_dir = data_path / "images"
-    lbl_dir = data_path / "labels"
-
-    train_img = img_dir / "train"
-    val_img = img_dir / "val"
-    train_lbl = lbl_dir / "train"
-    val_lbl = lbl_dir / "val"
-
-    # Skip if already split
-    if train_img.exists() and val_img.exists():
-        n_train = len(list(train_img.glob("*")))
-        n_val = len(list(val_img.glob("*")))
-        if n_train > 0 and n_val > 0:
-            print(f"[Dataset] Split already exists: {n_train} train, {n_val} val")
-            return
-
-    # Collect all images from the flat directory
-    IMG_EXTS = {".jpg", ".jpeg", ".png", ".bmp"}
-    all_images = sorted([
-        p for p in img_dir.iterdir()
-        if p.is_file() and p.suffix.lower() in IMG_EXTS
-    ])
-
-    if not all_images:
-        raise FileNotFoundError(f"No images found in {img_dir}")
-
-    print(f"[Dataset] Found {len(all_images)} images, splitting {1-val_split:.0%} / {val_split:.0%}")
-
-    # Shuffle and split
-    random.seed(seed)
-    random.shuffle(all_images)
-
-    n_val = max(1, int(len(all_images) * val_split))
-    val_imgs = all_images[:n_val]
-    train_imgs = all_images[n_val:]
-
-    # Create directories
-    for d in [train_img, val_img, train_lbl, val_lbl]:
-        d.mkdir(parents=True, exist_ok=True)
-
-    # Move files into splits
-    def move_files(img_list, dst_img, dst_lbl):
-        for img_path in img_list:
-            shutil.move(str(img_path), str(dst_img / img_path.name))
-            lbl_path = lbl_dir / (img_path.stem + ".txt")
-            if lbl_path.exists():
-                shutil.move(str(lbl_path), str(dst_lbl / lbl_path.name))
-
-    move_files(train_imgs, train_img, train_lbl)
-    move_files(val_imgs, val_img, val_lbl)
-
-    print(f"[Dataset] Split complete: {len(train_imgs)} train, {len(val_imgs)} val")
-
 
 # ─────────────────────────────────────────────────────────────
 # Training
 # ─────────────────────────────────────────────────────────────
 
 def train(
-    data_yaml: str = "dataset_subset.yaml",
+    data_yaml: str = "data.yaml",
     model_name: str = "yolo11n.pt",
     epochs: int = 100,
     batch: int = 16,
@@ -108,16 +35,6 @@ def train(
     project: str = "runs/detect",
 ):
     """Train YOLOv11 on the eye-signal detection dataset."""
-
-    # Prepare train/val split (idempotent)
-    data_path = Path(data_yaml)
-    if data_path.exists():
-        # Read the 'path' field from the YAML to find the data root
-        import yaml
-        with open(data_path) as f:
-            cfg = yaml.safe_load(f)
-        data_root = cfg.get("path", "dataset_subset")
-        prepare_dataset(data_root)
 
     # Auto-detect device
     if not device:
@@ -213,7 +130,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Train YOLOv11 on EyeWave dataset_subset"
     )
-    parser.add_argument("--data", default="dataset_subset.yaml",
+    parser.add_argument("--data", default="data.yaml",
                         help="Path to dataset YAML config")
     parser.add_argument("--model", default="yolo11n.pt",
                         help="YOLO model variant (yolo11n/s/m/l/x)")

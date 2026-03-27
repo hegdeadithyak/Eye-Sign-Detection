@@ -48,6 +48,7 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
 echo "=> Starting YOLO training..."
 # Using PYTHONPATH just to be absolutely sure the local ultralytics is prioritized
 PYTHONPATH=./ultralytics python3 train_yolo.py \
+    --data data.yaml \
     --model ultralytics/ultralytics/cfg/models/11/eyewave_transformer.yaml \
     --epochs 50 \
     --batch 32 \

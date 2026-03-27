@@ -1,0 +1,11 @@
+train: "/home/hutlab_int/Netravaad/nano_subset/nano_subset/train"
+val: "/home/hutlab_int/Netravaad/nano_subset/nano_subset/val"
+test: "/home/hutlab_int/Netravaad/nano_subset/nano_subset/test"
+nc: 5
+
+names:
+  - 'Straight'
+  - 'Top'
+  - 'Right'
+  - 'Left'
+  - 'Close'
