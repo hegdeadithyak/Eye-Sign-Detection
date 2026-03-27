@@ -163,17 +163,17 @@ def train(
         warmup_bias_lr=0.1,
 
         # ── Augmentation ─────────────────────────────────────
-        hsv_h=0.015,          # hue shift
-        hsv_s=0.4,            # saturation shift
-        hsv_v=0.4,            # value shift
-        degrees=10.0,         # rotation ±10°
-        translate=0.1,        # translation ±10%
-        scale=0.5,            # scale ±50%
-        flipud=0.0,           # no vertical flip (faces aren't upside down)
-        fliplr=0.5,           # horizontal flip (left/right eye swap OK)
-        mosaic=1.0,           # mosaic augmentation
-        mixup=0.1,            # mixup probability
-        copy_paste=0.1,       # copy-paste augmentation
+        hsv_h=0.0,            # hue shift
+        hsv_s=0.0,            # saturation shift
+        hsv_v=0.0,            # value shift
+        degrees=0.0,          # rotation
+        translate=0.0,        # translation
+        scale=0.0,            # scale
+        flipud=0.0,           # no vertical flip
+        fliplr=0.0,           # horizontal flip
+        mosaic=0.0,           # mosaic augmentation
+        mixup=0.0,            # mixup probability
+        copy_paste=0.0,       # copy-paste augmentation
 
         # ── Loss weights ─────────────────────────────────────
         box=7.5,              # box loss weight

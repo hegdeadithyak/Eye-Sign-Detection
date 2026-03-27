@@ -18,7 +18,84 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 from typing import Tuple
+# ── Wavelet filter coefficients (from PyWavelets reference tables) ────────────
+# These are the exact decomposition low-pass (dec_lo) and high-pass (dec_hi)
+# filter coefficients for common discrete wavelets.
+WAVELET_FILTERS = {
+    'haar': {
+        'dec_lo': [0.7071067811865476, 0.7071067811865476],
+        'dec_hi': [-0.7071067811865476, 0.7071067811865476],
+    },
+    'db2': {
+        'dec_lo': [-0.12940952255092145, 0.22414386804185735,
+                   0.836516303737469, 0.48296291314469025],
+        'dec_hi': [-0.48296291314469025, 0.836516303737469,
+                   -0.22414386804185735, -0.12940952255092145],
+    },
+    'db3': {
+        'dec_lo': [0.035226291882100656, -0.08544127388224149,
+                   -0.13501102001039084, 0.4598775021193313,
+                   0.8068915093133388, 0.3326705529509569],
+        'dec_hi': [-0.3326705529509569, 0.8068915093133388,
+                   -0.4598775021193313, -0.13501102001039084,
+                   0.08544127388224149, 0.035226291882100656],
+    },
+    'db4': {
+        'dec_lo': [-0.010597401784997278, 0.032883011666982945,
+                   0.030841381835986965, -0.18703481171888114,
+                   -0.02798376941698385, 0.6308807679295904,
+                   0.7148465705525415, 0.23037781330885523],
+        'dec_hi': [-0.23037781330885523, 0.7148465705525415,
+                   -0.6308807679295904, -0.02798376941698385,
+                   0.18703481171888114, 0.030841381835986965,
+                   -0.032883011666982945, -0.010597401784997278],
+    },
+    'sym4': {
+        'dec_lo': [-0.07576571478927333, -0.02963552764599851,
+                   0.49761866763201545, 0.8037387518059161,
+                   0.29785779560527736, -0.09921954357684722,
+                   -0.012603967262037833, 0.032223100604071224],
+        'dec_hi': [-0.032223100604071224, -0.012603967262037833,
+                   0.09921954357684722, 0.29785779560527736,
+                   -0.8037387518059161, 0.49761866763201545,
+                   0.02963552764599851, -0.07576571478927333],
+    },
+    'coif1': {
+        'dec_lo': [-0.01565572813546454, -0.0727326195128539,
+                   0.38486484686420286, 0.8525720202122554,
+                   0.3378976624578092, -0.0727326195128539],
+        'dec_hi': [0.0727326195128539, 0.3378976624578092,
+                   -0.8525720202122554, 0.38486484686420286,
+                   0.0727326195128539, -0.01565572813546454],
+    },
+}
 
+
+def _build_dwt_filters(wave: str) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
+    """
+    Build 2D separable wavelet decomposition filters from 1D coefficients.
+
+    Returns 4 filters of shape (1, 1, K, K): LL, LH, HL, HH
+    """
+    if wave not in WAVELET_FILTERS:
+        raise ValueError(
+            f"Unknown wavelet '{wave}'. Supported: {list(WAVELET_FILTERS.keys())}"
+        )
+    coeffs = WAVELET_FILTERS[wave]
+    lo = torch.tensor(coeffs['dec_lo'], dtype=torch.float32)
+    hi = torch.tensor(coeffs['dec_hi'], dtype=torch.float32)
+
+    # 2D separable filters via outer product
+    filt_ll = lo.unsqueeze(0) * lo.unsqueeze(1)  # (K, K)
+    filt_lh = hi.unsqueeze(0) * lo.unsqueeze(1)  # high-pass rows, low-pass cols → horiz edges
+    filt_hl = lo.unsqueeze(0) * hi.unsqueeze(1)  # low-pass rows, high-pass cols → vert edges
+    filt_hh = hi.unsqueeze(0) * hi.unsqueeze(1)  # (K, K)
+
+    # Shape: (1, 1, K, K) for depthwise conv
+    return (filt_ll.unsqueeze(0).unsqueeze(0),
+            filt_lh.unsqueeze(0).unsqueeze(0),
+            filt_hl.unsqueeze(0).unsqueeze(0),
+            filt_hh.unsqueeze(0).unsqueeze(0))
 
 
 def conv_bn_relu(
@@ -38,38 +115,70 @@ def conv_bn_relu(
     )
 
 
-
-def dwt_haar(x: Tensor) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
+class DWT2d(nn.Module):
     """
-    Standard 2D Haar Discrete Wavelet Transform.
-    Input: (B, C, H, W)
+    2D Discrete Wavelet Transform — pure PyTorch, zero external dependencies.
+
+    GPU-compatible and fully differentiable. Uses real wavelet filter banks
+    applied via depthwise F.conv2d with stride=2.
+
+    Supported wavelets: haar, db2, db3, db4, sym4, coif1.
+
+    Args:
+        wave: Wavelet name (default: 'haar').
+
+    Input:  (B, C, H, W)
     Output: (LL, HL, LH, HH) each (B, C, H/2, W/2)
     """
-    x00 = x[:, :, 0::2, 0::2]
-    x01 = x[:, :, 0::2, 1::2]
-    x10 = x[:, :, 1::2, 0::2]
-    x11 = x[:, :, 1::2, 1::2]
 
-    ll = (x00 + x01 + x10 + x11) / 2
-    hl = (x00 + x01 - x10 - x11) / 2
-    lh = (x00 - x01 + x10 - x11) / 2
-    hh = (x00 - x01 - x10 + x11) / 2
-    return ll, hl, lh, hh
+    def __init__(self, wave: str = 'haar') -> None:
+        super().__init__()
+        filt_ll, filt_lh, filt_hl, filt_hh = _build_dwt_filters(wave)
+        # Register as buffers (non-learnable, move with .cuda()/.to())
+        self.register_buffer('filt_ll', filt_ll)
+        self.register_buffer('filt_lh', filt_lh)
+        self.register_buffer('filt_hl', filt_hl)
+        self.register_buffer('filt_hh', filt_hh)
+        self.pad = (filt_ll.shape[-1] - 1) // 2  # symmetric padding
+
+    def forward(self, x: Tensor) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
+        B, C, H, W = x.shape
+        # Pad for even dimensions + filter support
+        pad = self.pad
+        if pad > 0 or H % 2 != 0 or W % 2 != 0:
+            pad_h = pad + (H % 2)
+            pad_w = pad + (W % 2)
+            x = F.pad(x, (pad, pad_w, pad, pad_h), mode='reflect')
+
+        # Expand single-channel filters to C channels for depthwise conv
+        filt_ll = self.filt_ll.expand(C, -1, -1, -1)
+        filt_lh = self.filt_lh.expand(C, -1, -1, -1)
+        filt_hl = self.filt_hl.expand(C, -1, -1, -1)
+        filt_hh = self.filt_hh.expand(C, -1, -1, -1)
+
+        # Depthwise conv with stride=2 for downsampling
+        ll = F.conv2d(x, filt_ll, stride=2, groups=C)
+        hl = F.conv2d(x, filt_lh, stride=2, groups=C)
+        lh = F.conv2d(x, filt_hl, stride=2, groups=C)
+        hh = F.conv2d(x, filt_hh, stride=2, groups=C)
+        return ll, hl, lh, hh
 
 
 class LearnedWaveletStem(nn.Module):
     """
-    Formal DWT-based stem.
-    The spatial decomposition is fixed (Haar DWT), while the channel 
-    mapping is handled by 1×1 convolutions (init to Haar, then learnable).
+    DWT-based stem using pytorch_wavelets.
+    The spatial decomposition uses a real wavelet transform, while the channel
+    mapping is handled by 1x1 convolutions.
 
         Input:  (B, in_ch, H, W)
         Output: (LL, HL, LH, HH) each (B, out_ch, H/2, W/2)
     """
 
-    def __init__(self, in_channels: int, out_channels: int) -> None:
+    def __init__(self, in_channels: int, out_channels: int, wave: str = 'haar') -> None:
         super().__init__()
-        # Use 1x1 convolutions for channel mapping after formal DWT
+        self.dwt = DWT2d(wave=wave)
+
+        # Use 1x1 convolutions for channel mapping after DWT
         # These are named 'filter_*' for compatibility with model.py FUSE_MODULES
         self.filter_ll = nn.Conv2d(in_channels, out_channels, 1, bias=False)
         self.filter_hl = nn.Conv2d(in_channels, out_channels, 1, bias=False)
@@ -90,8 +199,8 @@ class LearnedWaveletStem(nn.Module):
         self.bn_hh = nn.BatchNorm2d(out_channels)
 
     def forward(self, x: Tensor) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
-        # 1. Formal Fixed DWT
-        ll, hl, lh, hh = dwt_haar(x)
+        # 1. Real DWT via pytorch_wavelets
+        ll, hl, lh, hh = self.dwt(x)
 
         # 2. Learnable Channel Mapping + Norm + Activation
         ll = F.relu6(self.bn_ll(self.filter_ll(ll)))
