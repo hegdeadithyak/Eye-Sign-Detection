@@ -42,7 +42,7 @@ echo "=> Installing local ultralytics and dependencies (editable mode)..."
 pip install -e ./ultralytics
 
 # Optionally, ensure torch with CUDA is installed if the default is CPU-only
-# pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
 
 # 4. Run the training script
 echo "=> Starting YOLO training..."
