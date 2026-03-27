@@ -52,7 +52,6 @@ pip install -e "$BASE_DIR/ultralytics"
 
 # 5. Run the training script directly
 echo "=> Starting YOLO training..."
-export PYTHONPATH="$BASE_DIR/ultralytics"
 python3 "$BASE_DIR/train_yolo.py" \
     --data "$BASE_DIR/nano_subset-Copy/data.yaml" \
     --model "$BASE_DIR/ultralytics/ultralytics/cfg/models/11/eyewave_transformer.yaml" \
