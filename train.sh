@@ -11,12 +11,14 @@
 #SBATCH --mem=32G
 #SBATCH --time=48:00:00
 
-# SBATCH working directory automatically defaults to where the script is submitted.
-# We robustly capture this directory regardless of where on the HPC you cloned the repo.
+# Cluster managers execute from strange temporary directories. We robustly 
+# capture the original submission directory for both SLURM and PBS.
 if [ -n "$SLURM_SUBMIT_DIR" ]; then
     BASE_DIR="$SLURM_SUBMIT_DIR"
+elif [ -n "$PBS_O_WORKDIR" ]; then
+    BASE_DIR="$PBS_O_WORKDIR"
 else
-    BASE_DIR="$PWD"
+    BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 fi
 
 echo "=========================================================="
