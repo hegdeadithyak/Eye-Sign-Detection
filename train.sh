@@ -11,8 +11,13 @@
 #SBATCH --mem=32G
 #SBATCH --time=48:00:00
 
-# Global base directory where everything lives
-BASE_DIR="/home/hutlab_int/Hegde_netravaad"
+# SBATCH working directory automatically defaults to where the script is submitted.
+# We robustly capture this directory regardless of where on the HPC you cloned the repo.
+if [ -n "$SLURM_SUBMIT_DIR" ]; then
+    BASE_DIR="$SLURM_SUBMIT_DIR"
+else
+    BASE_DIR="$PWD"
+fi
 
 echo "=========================================================="
 echo "Starting EyeWave HPC Training Job (Isolated Python 3.10)"
@@ -53,7 +58,7 @@ pip install -e "$BASE_DIR/ultralytics"
 # 5. Run the training script directly
 echo "=> Starting YOLO training..."
 python3 "$BASE_DIR/train_yolo.py" \
-    --data "$BASE_DIR/nano_subset-Copy/data.yaml" \
+    --data "$BASE_DIR/data.yaml" \
     --model "$BASE_DIR/ultralytics/ultralytics/cfg/models/11/eyewave_transformer.yaml" \
     --epochs 50 \
     --batch 32 \
